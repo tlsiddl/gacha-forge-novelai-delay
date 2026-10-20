@@ -26,7 +26,7 @@ function records(payload) {
   for (const c of list) if (c && c.id) known.set(String(c.id), providerIsNovelAi(c));
 }
 function isGachaCall() {
-  return /(?:^|[\\/])(?:gacha-forge[\\/]server\.mjs|gacha-forge-1\.8\.12-[^\\/]+[\\/]server\.mjs|gacha-forge[\\/]1\.8\.12[\\/]server\.mjs)(?::\d+)?/.test(new Error().stack || '');
+  return /(?:^|[\\/])(?:gacha-forge[\\/]server\.mjs|gacha-forge-1\.8\.(?:12|13)-[^\\/]+[\\/]server\.mjs|gacha-forge[\\/]1\.8\.(?:12|13)[\\/]server\.mjs)(?::\d+)?/.test(new Error().stack || '');
 }
 function route(input) {
   try { return new URL(typeof input === 'string' ? input : input.url).pathname; } catch { return ''; }
