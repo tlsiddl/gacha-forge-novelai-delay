@@ -5,6 +5,8 @@ const originalFetch = globalThis.fetch;
 const delays = new Map();
 const known = new Map();
 let diagnosticCount = 0;
+let shapePrinted = false;
+let avatarLogged = 0;
 function diagnostic(message) {
   if (diagnosticCount++ < 12) console.info('[gacha-novelai-delay] diagnostic: ' + message);
 }
@@ -20,6 +22,17 @@ function providerIsNovelAi(c) {
 function records(payload) {
   const list = Array.isArray(payload) ? payload : Array.isArray(payload?.connections)
     ? payload.connections : Array.isArray(payload?.items) ? payload.items : [];
+  if (!shapePrinted && list.length) {
+    shapePrinted = true;
+    const safeKeys = obj => obj && typeof obj === 'object'
+      ? Object.keys(obj).filter(k => /^[a-zA-Z_][a-zA-Z0-9_]{0,39}$/.test(k)).slice(0, 30)
+      : [];
+    console.info('[gacha-novelai-delay] shape: connectionKeys=' + JSON.stringify(safeKeys(list[0])));
+    for (const field of ['config','settings','params','metadata']) {
+      if (list[0] && typeof list[0][field] === 'object' && list[0][field])
+        console.info('[gacha-novelai-delay] shape: ' + field + 'Keys=' + JSON.stringify(safeKeys(list[0][field])));
+    }
+  }
   for (const c of list) if (c && c.id) known.set(String(c.id), providerIsNovelAi(c));
   diagnostic('connections metadata loaded; count=' + list.length + '; novelaiRecognized=' + [...known.values()].filter(Boolean).length);
 }
@@ -35,6 +48,8 @@ if (typeof originalFetch === 'function') {
     const path = route(input);
     const relevant = path === '/api/connections' || path === '/api/characters/avatar-generation';
     const gacha = isGachaCall();
+    if (path === '/api/characters/avatar-generation' && avatarLogged++ < 4)
+      console.info('[gacha-novelai-delay] image route seen; gachaStack=' + gacha + '; methodPost=' + (str(init?.method) === 'post'));
     if (relevant) diagnostic('route=' + (path === '/api/connections' ? 'connections' : 'avatar-generation') + '; gachaStack=' + gacha + '; methodPost=' + (str(init?.method) === 'post'));
     if (!gacha) return originalFetch.apply(this, arguments);
     if (path === '/api/connections') {
