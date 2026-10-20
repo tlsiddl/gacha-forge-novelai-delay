@@ -34,67 +34,70 @@ ls -lh novelai-gacha-delay.cjs
 
 실패했다면 다음 단계로 진행하지 마세요.
 
-### 3. 기존 Docker 설정 백업
+### 3. 기존 설정 백업 및 자동 병합
+
+실제로 정상 동작이 확인된 설치 방식처럼, **기존 설정을 백업한 다음 Python으로 필요한 두 항목만 추가합니다.** 수동으로 YAML 전체를 덮어쓸 필요가 없습니다.
+
+아래 코드는 기존 `marinara` 서비스에 `volumes`와 `NODE_OPTIONS`가 이미 있는 일반적인 구성을 위한 것입니다. 원본 설정이 예상과 다르면 **수정하지 않고 중단**합니다.
 
 ```bash
-test -f docker-compose.override.yml || { echo "override 파일이 없습니다. 설정을 먼저 확인해 주세요."; exit 1; }
-cp -a docker-compose.override.yml "docker-compose.override.yml.backup.$(date +%Y%m%d-%H%M%S)"
+cd /root/Marinara-Engine || exit 1
+
+python3 - <<'PY'
+from pathlib import Path
+from datetime import datetime
+import re, shutil
+
+config = Path("docker-compose.override.yml")
+patch = Path("novelai-gacha-delay.cjs")
+if not patch.is_file() or not config.is_file():
+    raise SystemExit("패치 파일 또는 기존 Docker 설정이 없습니다. 중단합니다.")
+
+original = config.read_text()
+mount = "      - ./novelai-gacha-delay.cjs:/app/novelai-gacha-delay.cjs:ro"
+flag = "--require=/app/novelai-gacha-delay.cjs"
+
+if "novelai-gacha-delay.cjs" in original:
+    raise SystemExit("NovelAI 패치 설정이 이미 있습니다. 중복 추가하지 않습니다.")
+
+# 실제 적용에 사용했던 기존 가속 패치 마운트를 기준으로 안전하게 추가합니다.
+anchor = "      - ./me-speedup.cjs:/app/me-speedup.cjs:ro"
+matches = list(re.finditer(r'(?m)^(\s*NODE_OPTIONS:\s*")([^"\n]*)(")\s*$', original))
+if original.count(anchor) != 1 or len(matches) != 1:
+    raise SystemExit("기존 설정 형식이 예시와 다릅니다. 수정하지 않았습니다.")
+
+line = matches[0].group(0)
+updated_line = line.replace(matches[0].group(2), matches[0].group(2) + " " + flag, 1)
+updated = original.replace(anchor, anchor + "\n" + mount, 1)
+updated = updated.replace(line, updated_line, 1)
+
+backup = config.with_name(config.name + ".backup." + datetime.now().strftime("%Y%m%d-%H%M%S"))
+shutil.copy2(config, backup)
+config.write_text(updated)
+print("기존 설정 백업:", backup)
+print("기존 NODE_OPTIONS 유지 + NovelAI 패치 추가 완료")
+PY
 ```
 
-### 4. Docker Compose에 패치 등록
+위 명령어는 **기존 `me-speedup.cjs` 마운트가 있는 서버에서 검증한 설치 흐름**을 기준으로 합니다. 다른 구성에서는 `install-snippet.yml`을 참고하여 기존 설정을 보존한 채 수동 병합해 주세요. 이미 설치한 경우에는 다시 실행하지 마세요.
 
-``docker-compose.override.yml`` 파일의 기존 `services.marinara` 아래에 새 볼륨 한 줄을 추가해 주세요.
-
-```yaml
-services:
-  marinara:
-    volumes:
-      - ./novelai-gacha-delay.cjs:/app/novelai-gacha-delay.cjs:ro
-```
-
-위 예시는 **추가할 설정의 위치**를 보여주는 것입니다. 기존 override 파일 전체를 이 예시로 **덮어쓰지 마세요.** 이미 있는 `volumes` 항목에 새 줄만 추가해 주세요.
-
-같은 서비스의 `environment.NODE_OPTIONS` 값 **맨 뒤에** 다음 값을 한 칸 띄워 추가해 주세요.
-
-```text
---require=/app/novelai-gacha-delay.cjs
-```
-
-예를 들어 기존에 가속·한국어·CG 패치를 사용한다면 아래처럼 네 가지를 모두 유지하시면 됩니다.
-
-```yaml
-services:
-  marinara:
-    volumes:
-      - ./me-speedup.cjs:/app/me-speedup.cjs:ro
-      - ./gacha-ko-runtime.cjs:/app/gacha-ko-runtime.cjs:ro
-      - ./gacha-cg-runtime.cjs:/app/gacha-cg-runtime.cjs:ro
-      - ./novelai-gacha-delay.cjs:/app/novelai-gacha-delay.cjs:ro
-    environment:
-      NODE_OPTIONS: "--require=/app/me-speedup.cjs --require=/app/gacha-ko-runtime.cjs --require=/app/gacha-cg-runtime.cjs --require=/app/novelai-gacha-delay.cjs"
-```
-
-이전 패치가 없으시면 실제 사용 중인 설정에 맞게 조정해 주세요. `NODE_OPTIONS` 설정은 하나만 유지하고, 기존 다른 환경변수나 볼륨을 삭제하지 마세요.
-
-수정이 어렵다면 `nano docker-compose.override.yml`로 파일을 열어 직접 추가하실 수 있습니다. 저장은 `Ctrl+O`, 종료는 `Ctrl+X`입니다.
-
-### 5. 설정 및 문법 검사
+### 4. 설정 및 문법 검사
 
 ```bash
 docker compose config -q
-docker compose run --rm --no-deps --entrypoint node marinara --check /app/novelai-gacha-delay.cjs
+docker compose exec -T marinara node --check /app/novelai-gacha-delay.cjs
 ```
 
 오류가 발생하면 재생성하기 전에 파일 경로와 YAML 들여쓰기를 확인해 주세요.
 
-### 6. 컨테이너 재생성
+### 5. 컨테이너 재생성
 
 ```bash
 docker compose up -d --force-recreate marinara
 docker compose ps
 ```
 
-### 7. 실제 적용 확인
+### 6. 실제 적용 확인
 
 ```bash
 docker compose logs --since=10m marinara 2>&1 | grep 'gacha-novelai-delay'
@@ -124,7 +127,7 @@ cp -a novelai-gacha-delay.cjs "novelai-gacha-delay.cjs.backup.$(date +%Y%m%d-%H%
 curl -fL --retry 3 \
   https://raw.githubusercontent.com/tlsiddl/gacha-forge-novelai-delay/main/novelai-gacha-delay.cjs \
   -o novelai-gacha-delay.cjs
-docker compose run --rm --no-deps --entrypoint node marinara --check /app/novelai-gacha-delay.cjs && \
+docker compose exec -T marinara node --check /app/novelai-gacha-delay.cjs && \
 docker compose up -d --force-recreate marinara
 ```
 
