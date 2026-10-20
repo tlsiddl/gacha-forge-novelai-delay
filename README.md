@@ -18,9 +18,19 @@
 
 ### 1. 프로젝트 폴더로 이동
 
+**입력 명령어**
+
 ```bash
 cd /root/Marinara-Engine || exit 1
 ```
+
+**정상 예시**
+
+```text
+root@bada:~/Marinara-Engine#
+```
+
+별도의 오류 없이 프로젝트 폴더로 이동하면 정상입니다.
 
 ### 2. GitHub에서 curl로 패치 다운로드
 
@@ -32,7 +42,14 @@ curl -fL --retry 3 \
 ls -lh novelai-gacha-delay.cjs
 ```
 
-실패했다면 다음 단계로 진행하지 마세요.
+**정상 출력 예시**
+
+```text
+100  2xxx  100  2xxx  ...
+-rw-r--r-- 1 root root 2.xK ... novelai-gacha-delay.cjs
+```
+
+파일 크기와 다운로드 속도는 버전에 따라 달라질 수 있습니다. `curl: (22)` 또는 `404` 오류가 나오면 다음 단계로 진행하지 마세요.
 
 ### 3. 기존 설정 백업 및 자동 병합
 
@@ -79,16 +96,32 @@ print("기존 NODE_OPTIONS 유지 + NovelAI 패치 추가 완료")
 PY
 ```
 
+**정상 출력 예시**
+
+```text
+기존 설정 백업: docker-compose.override.yml.backup.20261020-134200
+기존 NODE_OPTIONS 유지 + NovelAI 패치 추가 완료
+```
+
+백업 파일명의 날짜와 시간은 설치 시점마다 달라집니다. 기존 패치 설정을 유지하면서 새 패치 경로를 추가했다는 메시지가 나오면 정상입니다.
+
 위 명령어는 **기존 `me-speedup.cjs` 마운트가 있는 서버에서 검증한 설치 흐름**을 기준으로 합니다. 다른 구성에서는 `install-snippet.yml`을 참고하여 기존 설정을 보존한 채 수동 병합해 주세요. 이미 설치한 경우에는 다시 실행하지 마세요.
 
 ### 4. 설정 및 문법 검사
 
 ```bash
-docker compose config -q
-docker compose exec -T marinara node --check /app/novelai-gacha-delay.cjs
+docker compose config -q && echo "Docker 설정 정상"
+docker compose run --rm --no-deps --entrypoint node marinara --check /app/novelai-gacha-delay.cjs && echo "JavaScript 문법 정상"
 ```
 
-오류가 발생하면 재생성하기 전에 파일 경로와 YAML 들여쓰기를 확인해 주세요.
+**정상 출력 예시**
+
+```text
+Docker 설정 정상
+JavaScript 문법 정상
+```
+
+`docker compose config -q`와 `node --check`는 성공해도 원래 별도의 메시지를 출력하지 않으므로, 위의 `echo`로 성공 여부를 표시합니다. 아직 새 볼륨을 적용하지 않은 상태에서도 검사할 수 있도록 `exec` 대신 `run`을 사용합니다. 오류가 발생하면 재생성하기 전에 파일 경로와 YAML 들여쓰기를 확인해 주세요.
 
 ### 5. 컨테이너 재생성
 
@@ -97,27 +130,67 @@ docker compose up -d --force-recreate marinara
 docker compose ps
 ```
 
-### 6. 실제 적용 확인
+**정상 출력 예시**
 
-```bash
-docker compose logs --since=10m marinara 2>&1 | grep 'gacha-novelai-delay'
+```text
+[+] up 1/1
+ ✔ Container marinara-engine-marinara-1 Started
+NAME                         IMAGE                                      SERVICE    STATUS
+marinara-engine-marinara-1   ghcr.io/pasta-devs/marinara-engine:latest  marinara   Up ...
 ```
 
-`preload loaded`만 출력되면 패치 파일을 읽었다는 뜻입니다. **실제 지연을 확인하려면** 가챠포지에서 NovelAI 이미지 생성 또는 다시 그리기를 **순차적으로 두 번** 실행한 뒤 아래 명령어를 사용해 주세요.
+출력 형식과 시간은 Docker Compose 버전에 따라 다릅니다. `docker compose ps`에서 `marinara` 서비스가 `Up`으로 표시되면 실행 중인 것입니다. 다만 정상 서비스 응답까지 보장하는 검사는 아닙니다.
+
+### 6. 패치 로딩 확인
+
+```bash
+docker compose logs --since=10m marinara 2>&1 \
+  | grep 'gacha-novelai-delay'
+```
+
+**정상 출력 예시**
+
+```text
+marinara-1  | [gacha-novelai-delay] preload loaded; NovelAI-only gating is active when provider metadata is recognized
+```
+
+위 메시지는 패치 파일을 **불러왔다는 의미**입니다. 이것만으로 실제 요청 간격이 적용됐다고 판단하지 마세요.
+
+### 7. 이미지 생성 후 대기 시간 확인
+
+가챠포지에서 **NovelAI 이미지 생성 또는 다시 그리기를 순차적으로 두 번** 실행해 주세요. 첫 번째 이미지가 완전히 생성된 뒤 두 번째를 요청하시면 됩니다.
 
 ```bash
 docker compose logs --since=30m marinara 2>&1 \
   | grep -E 'gacha-novelai-delay.*(first NovelAI|waiting)'
 ```
 
-예시:
+**정상 출력 예시 (실제 확인된 대기 시간)**
 
 ```text
-[gacha-novelai-delay] first NovelAI image request (no delay)
-[gacha-novelai-delay] waiting 3542ms before next NovelAI image request
+marinara-1  | [gacha-novelai-delay] first NovelAI image request (no delay)
+marinara-1  | [gacha-novelai-delay] waiting 3542ms before next NovelAI image request
 ```
 
-`3542ms`는 요청 전 **3.542초 대기**를 의미합니다. 서비스 자체의 이미지 생성 소요 시간은 포함하지 않습니다. 로그가 없다면 대기 기능이 작동한다고 가정하지 마세요.
+- `first NovelAI image request (no delay)`: 첫 이미지 생성 요청은 즉시 전송합니다.
+- `waiting 3542ms ...`: 다음 요청을 보내기 전에 **3.542초** 대기합니다.
+- 대기 시간은 매번 달라지며 2,000~5,000ms 범위입니다. **이미지 생성 자체에 걸린 시간은 포함되지 않습니다.**
+
+**실시간 로그 확인**
+
+```bash
+docker compose logs -f --since=1m marinara 2>&1 \
+  | grep --line-buffered 'gacha-novelai-delay'
+```
+
+로그 확인을 끝내려면 `Ctrl+C`를 누르세요. 로그 보기만 종료되고 서버는 계속 실행됩니다.
+
+### 8. 로그가 나오지 않을 때
+
+- `preload loaded`만 나온다면 **로드는 됐지만 실제 이미지 지연 여부는 미확인**입니다.
+- `first NovelAI`만 나온다면 다음 이미지 생성 요청이 아직 인식되지 않았을 수 있습니다.
+- 아무 로그도 없다면 컨테이너 재생성 여부, `NODE_OPTIONS`, 볼륨 마운트 및 가챠포지 버전을 확인해 주세요.
+- 실제로 `waiting ...ms`가 나온 경우에만 이미지 생성 요청 대기가 실행된 것으로 판단해 주세요.
 
 ## 업데이트 방법
 
@@ -127,7 +200,7 @@ cp -a novelai-gacha-delay.cjs "novelai-gacha-delay.cjs.backup.$(date +%Y%m%d-%H%
 curl -fL --retry 3 \
   https://raw.githubusercontent.com/tlsiddl/gacha-forge-novelai-delay/main/novelai-gacha-delay.cjs \
   -o novelai-gacha-delay.cjs
-docker compose exec -T marinara node --check /app/novelai-gacha-delay.cjs && \
+docker compose run --rm --no-deps --entrypoint node marinara --check /app/novelai-gacha-delay.cjs && \
 docker compose up -d --force-recreate marinara
 ```
 
