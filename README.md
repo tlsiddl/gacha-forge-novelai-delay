@@ -27,7 +27,7 @@ cd /root/Marinara-Engine || exit 1
 **정상 예시**
 
 ```text
-root@bada:~/Marinara-Engine#
+root@서버이름:~/Marinara-Engine#
 ```
 
 별도의 오류 없이 프로젝트 폴더로 이동하면 정상입니다.
