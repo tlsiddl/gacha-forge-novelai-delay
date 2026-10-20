@@ -1,0 +1,8 @@
+# Merge into your existing docker-compose.override.yml; do not overwrite it.
+services:
+  marinara:
+    volumes:
+      - ./novelai-gacha-delay.cjs:/app/novelai-gacha-delay.cjs:ro
+    environment:
+      # Example preserving the user's existing speed-up preload.
+      NODE_OPTIONS: "--require=/app/me-speedup.cjs --require=/app/novelai-gacha-delay.cjs"
