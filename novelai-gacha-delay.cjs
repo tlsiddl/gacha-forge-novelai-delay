@@ -15,9 +15,16 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const str = value => typeof value === 'string' ? value.toLowerCase() : '';
 function providerIsNovelAi(c) {
   if (!c || typeof c !== 'object') return false;
+  // Match the Engine's explicit image-provider preference before checking fallback hints.
+  const explicit = String(c.imageService || c.imageGenerationSource || '').trim();
+  if (explicit) return /^novel[\s_-]?ai$/i.test(explicit);
   const values = [c.provider, c.imageProvider, c.service, c.providerType, c.apiType,
     c.config?.provider, c.settings?.provider, c.source];
-  return values.some(v => /^novel[\s_-]?ai$/i.test(String(v || '').trim()));
+  if (values.some(v => /^novel[\s_-]?ai$/i.test(String(v || '').trim()))) return true;
+  // Engine's fallback when no explicit image source is configured.
+  try { return new URL(String(c.baseUrl || '')).hostname.toLowerCase() === 'image.novelai.net'
+    || new URL(String(c.baseUrl || '')).hostname.toLowerCase() === 'api.novelai.net'; }
+  catch (_) { return false; }
 }
 function records(payload) {
   const list = Array.isArray(payload) ? payload : Array.isArray(payload?.connections)
