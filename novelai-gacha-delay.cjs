@@ -4,6 +4,10 @@
 const originalFetch = globalThis.fetch;
 const delays = new Map();
 const known = new Map();
+let diagnosticCount = 0;
+function diagnostic(message) {
+  if (diagnosticCount++ < 12) console.info('[gacha-novelai-delay] diagnostic: ' + message);
+}
 const LOW = 2000, HIGH = 5000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const str = value => typeof value === 'string' ? value.toLowerCase() : '';
@@ -17,6 +21,7 @@ function records(payload) {
   const list = Array.isArray(payload) ? payload : Array.isArray(payload?.connections)
     ? payload.connections : Array.isArray(payload?.items) ? payload.items : [];
   for (const c of list) if (c && c.id) known.set(String(c.id), providerIsNovelAi(c));
+  diagnostic('connections metadata loaded; count=' + list.length + '; novelaiRecognized=' + [...known.values()].filter(Boolean).length);
 }
 function isGachaCall() {
   return /(?:^|[\\/])(?:gacha-forge[\\/]server\.mjs|gacha-forge-1\.8\.12-[^\\/]+[\\/]server\.mjs|gacha-forge[\\/]1\.8\.12[\\/]server\.mjs)(?::\d+)?/.test(new Error().stack || '');
@@ -27,8 +32,11 @@ function route(input) {
 function randomDelay() { return LOW + Math.floor(Math.random() * (HIGH - LOW + 1)); }
 if (typeof originalFetch === 'function') {
   globalThis.fetch = async function gachaNovelAiDelay(input, init) {
-    if (!isGachaCall()) return originalFetch.apply(this, arguments);
     const path = route(input);
+    const relevant = path === '/api/connections' || path === '/api/characters/avatar-generation';
+    const gacha = isGachaCall();
+    if (relevant) diagnostic('route=' + (path === '/api/connections' ? 'connections' : 'avatar-generation') + '; gachaStack=' + gacha + '; methodPost=' + (str(init?.method) === 'post'));
+    if (!gacha) return originalFetch.apply(this, arguments);
     if (path === '/api/connections') {
       const response = await originalFetch.apply(this, arguments);
       if (response.ok) try { records(await response.clone().json()); } catch (_) {}
@@ -40,7 +48,10 @@ if (typeof originalFetch === 'function') {
     let id;
     try { id = String(JSON.parse(init.body).connectionId || ''); }
     catch (_) { return originalFetch.apply(this, arguments); }
-    if (!known.get(id)) return originalFetch.apply(this, arguments);
+    if (!known.get(id)) {
+      diagnostic('image request passthrough; connectionKnown=' + known.has(id) + '; recognizedNovelAi=false');
+      return originalFetch.apply(this, arguments);
+    }
     const hadPrevious = delays.has(id);
     const previous = delays.get(id) || Promise.resolve();
     let release;
